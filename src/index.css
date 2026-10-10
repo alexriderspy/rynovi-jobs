@@ -116,3 +116,6 @@ h1, h2, h3, p { margin: 0; }
   .actions .btn.apply { flex: 1; }
   .search { min-width: 0; }
 }
+.elsewhere { margin-top: 12px; padding: 16px; border-radius: 20px; background: #fff; box-shadow: 0 3px 0 var(--line); display: flex; flex-direction: column; gap: 10px; }
+.chip.ext { display: inline-flex; align-items: center; }
+.small-note { font-size: 12px; font-weight: 700; color: var(--muted); }

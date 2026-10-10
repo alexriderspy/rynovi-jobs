@@ -1,4 +1,10 @@
 export const COMPANIES = [
+  ["smartrecruiters", "Swiggy", "Swiggy", "swiggy.com"],
+  ["smartrecruiters", "Freshworks", "Freshworks", "freshworks.com"],
+  ["smartrecruiters", "ServiceNow", "ServiceNow", "servicenow.com"],
+  ["amazon", "IND", "Amazon", "amazon.jobs"],
+  ["microsoft", "India", "Microsoft", "microsoft.com"],
+  ["atlassian", "all", "Atlassian", "atlassian.com"],
   ["workday", "nvidia|wd5|NVIDIAExternalCareerSite", "NVIDIA", "nvidia.com"],
   ["workday", "salesforce|wd12|External_Career_Site", "Salesforce", "salesforce.com"],
   ["workday", "adobe|wd5|external_experienced", "Adobe", "adobe.com"],

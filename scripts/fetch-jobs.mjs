@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { COMPANIES } from "./companies.mjs";
 
 const MAX_AGE_DAYS = 45;
@@ -70,7 +70,7 @@ function region(loc) {
 async function getJSON(url) {
   for (let i = 0; i < 3; i++) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": "proofpal-jobs (+https://github.com/alexriderspy)" } });
+      const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": "Mozilla/5.0 (compatible; proofpal-jobs)", Accept: "application/json" } });
       if (r.ok) return await r.json();
     } catch {
       /* retry */
@@ -170,7 +170,116 @@ async function fromWorkday(c) {
   return out;
 }
 
-const FETCH = { greenhouse: fromGreenhouse, lever: fromLever, ashby: fromAshby, workday: fromWorkday };
+function worthDetail(title) {
+  const t = title.replace(/[()|,\-–]/g, " ");
+  if (NOT_TECH.test(t) && !ML.test(t)) return false;
+  if (ALWAYS_SENIOR.test(t) && !INTERN.test(t)) return false;
+  return INTERN.test(t) || NEW_GRAD.test(t) || ML.test(t) || DATA.test(t) || SWE.test(t);
+}
+
+async function fromSmartRecruiters(c) {
+  const list = [];
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const j = await getJSON(`https://api.smartrecruiters.com/v1/companies/${c.token}/postings?limit=100&offset=${offset}`);
+    const page = j?.content ?? [];
+    list.push(...page);
+    if (page.length < 100) break;
+  }
+  const out = [];
+  await pool(list.filter((p) => p.function?.id !== "sales" && worthDetail(p.name)), 6, async (p) => {
+    const d = await getJSON(p.ref);
+    if (!d) return;
+    const sec = d.jobAd?.sections ?? {};
+    const loc = [p.location?.city, p.location?.region, p.location?.country?.toUpperCase() === "IN" ? "India" : p.location?.country].filter(Boolean).join(", ");
+    const lvl = p.experienceLevel?.id;
+    out.push({
+      id: `sr-${c.token}-${p.id}`,
+      title: p.name,
+      location: loc,
+      url: d.postingUrl ?? `https://jobs.smartrecruiters.com/${c.token}/${p.id}`,
+      postedAt: p.releasedDate,
+      team: p.department?.label ?? "",
+      remote: p.location?.remote === true,
+      text: `${lvl === "entry_level" ? "entry level" : lvl === "internship" ? "internship" : ""} ${strip(sec.jobDescription?.text)} ${strip(sec.qualifications?.text)}`
+    });
+  });
+  return out;
+}
+
+const AMAZON_TERMS = ["SDE I", "software development engineer", "intern", "university", "new grad", "graduate", "applied scientist", "data engineer", "machine learning"];
+
+async function fromAmazon(c) {
+  const seen = new Map();
+  for (const term of AMAZON_TERMS) {
+    for (let offset = 0; offset < 300; offset += 100) {
+      const q = new URLSearchParams({ base_query: term, result_limit: "100", offset: String(offset), sort: "recent" });
+      q.append("normalized_country_code[]", c.token);
+      const j = await getJSON(`https://www.amazon.jobs/en/search.json?${q}`);
+      const page = j?.jobs ?? [];
+      for (const x of page) seen.set(x.id_icims, x);
+      if (page.length < 100) break;
+    }
+  }
+  return [...seen.values()].map((x) => ({
+    id: `amz-${x.id_icims}`,
+    title: x.title,
+    location: x.normalized_location || x.location || "",
+    url: `https://www.amazon.jobs${x.job_path}`,
+    postedAt: new Date(Date.parse(x.posted_date) || Date.now()).toISOString(),
+    team: x.job_category ?? "",
+    text: strip(`${x.basic_qualifications ?? ""} ${x.preferred_qualifications ?? ""} ${x.description ?? ""}`)
+  }));
+}
+
+const MS_TERMS = ["intern", "software engineer", "data scientist", "applied scientist", "research", "new grad", "university", "data engineer"];
+
+async function fromMicrosoft(c) {
+  const seen = new Map();
+  const base = "https://apply.careers.microsoft.com/api/pcsx";
+  for (const term of MS_TERMS) {
+    for (let start = 0; start < 100; start += 10) {
+      const q = new URLSearchParams({ domain: "microsoft.com", query: term, location: c.token, start: String(start), sort_by: "timestamp" });
+      const page = (await getJSON(`${base}/search?${q}`))?.data?.positions ?? [];
+      for (const p of page) if (worthDetail(p.name)) seen.set(p.id, p);
+      if (page.length < 10) break;
+    }
+  }
+  const out = [];
+  await pool([...seen.values()], 4, async (p) => {
+    const d = (await getJSON(`${base}/position_details?position_id=${p.id}&domain=microsoft.com`))?.data;
+    if (!d) return;
+    const intern = /internship/i.test(String(d.efcustomTextEmploymentType ?? ""));
+    out.push({
+      id: `ms-${p.id}`,
+      title: intern && !INTERN.test(p.name) ? `${p.name} (Intern)` : p.name,
+      location: (p.locations ?? []).join(", "),
+      url: d.publicUrl ?? `https://apply.careers.microsoft.com/careers/job/${p.id}`,
+      postedAt: new Date(Number(p.postedTs) * 1000).toISOString(),
+      team: p.department ?? "",
+      remote: /remote/i.test(String(p.workLocationOption)),
+      text: strip(d.jobDescription)
+    });
+  });
+  return out;
+}
+
+async function fromAtlassian() {
+  const j = await getJSON("https://www.atlassian.com/endpoint/careers/listings");
+  return (Array.isArray(j) ? j : [])
+    .filter((x) => x.category !== "Sales")
+    .map((x) => ({
+      id: `atl-${x.id}`,
+      title: x.title,
+      location: (x.locations ?? []).map((l) => l.replace(/\s+/g, " ").trim()).join(", "),
+      url: x.applyUrl || x.portalJobPost?.portalUrl,
+      postedAt: x.portalJobPost?.updatedDate ? new Date(x.portalJobPost.updatedDate).toISOString() : new Date().toISOString(),
+      team: x.category ?? "",
+      remote: (x.locations ?? []).some((l) => /remote/i.test(l)),
+      text: strip(`${x.qualifications ?? ""} ${x.responsibilities ?? ""}`)
+    }));
+}
+
+const FETCH = { greenhouse: fromGreenhouse, lever: fromLever, ashby: fromAshby, workday: fromWorkday, smartrecruiters: fromSmartRecruiters, amazon: fromAmazon, microsoft: fromMicrosoft, atlassian: fromAtlassian };
 
 async function pool(items, n, fn) {
   const out = [];
@@ -216,7 +325,15 @@ const results = await pool(COMPANIES, 8, async (c) => {
   return { company: c.name, total: raw.length, kept: jobs.length, jobs };
 });
 
-const jobs = results.flatMap((r) => r.jobs).sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+let previous = [];
+try {
+  previous = JSON.parse(await readFile("public/jobs.json", "utf8")).jobs ?? [];
+} catch {
+  /* first run */
+}
+const down = results.filter((r) => r.total === 0).map((r) => r.company);
+const kept = previous.filter((j) => down.includes(j.company) && now - Date.parse(j.postedAt) <= MAX_AGE_DAYS * 864e5);
+const jobs = [...results.flatMap((r) => r.jobs), ...kept].sort((a, b) => b.postedAt.localeCompare(a.postedAt));
 const out = {
   updatedAt: new Date().toISOString(),
   companies: results.filter((r) => r.total > 0).length,
@@ -229,4 +346,4 @@ await writeFile("public/jobs.json", JSON.stringify(out));
 console.log(`scanned ${out.scanned} jobs at ${out.companies} companies -> kept ${out.count}`);
 for (const r of results.filter((r) => r.kept).sort((a, b) => b.kept - a.kept).slice(0, 15)) console.log(`  ${r.company}: ${r.kept}/${r.total}`);
 const failed = results.filter((r) => r.total === 0).map((r) => r.company);
-if (failed.length) console.log("no data from:", failed.join(", "));
+if (failed.length) console.log("no data from:", failed.join(", "), `(kept ${kept.length} earlier jobs from them)`);

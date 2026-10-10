@@ -34,6 +34,21 @@ function ago(iso: string) {
   return d === 1 ? "yesterday" : `${d}d ago`;
 }
 
+function elsewhere(q: string, level: string, cat: string, region: string) {
+  const role = q.trim() || (cat === "ml" ? "machine learning" : cat === "data" ? "data" : "software engineer");
+  const kind = level === "intern" ? "intern" : "fresher";
+  const where = region === "Anywhere" || region === "Remote" ? "" : region === "US" ? "United States" : region;
+  const words = `${role} ${level === "intern" ? "intern" : "entry level"}`;
+  const enc = encodeURIComponent;
+  const naukriSlug = `${role} ${kind}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return [
+    ["LinkedIn", `https://www.linkedin.com/jobs/search/?keywords=${enc(role)}${where ? `&location=${enc(where)}` : ""}&f_E=${level === "intern" ? "1" : level === "newgrad" ? "2" : "1%2C2"}${region === "Remote" ? "&f_WT=2" : ""}&sortBy=DD`],
+    ["Glassdoor", `https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${enc(`${words}${where ? " " + where : ""}`)}`],
+    ["Naukri", `https://www.naukri.com/${naukriSlug}-jobs${region === "India" || region === "Anywhere" ? "" : "-in-" + where.toLowerCase().replace(/\s+/g, "-")}?experience=0`],
+    ["Wellfound", `https://wellfound.com/role/${cat === "ml" ? "machine-learning-engineer" : cat === "data" ? "data-scientist" : "software-engineer"}`]
+  ] as const;
+}
+
 function useParam(key: string, fallback: string) {
   const [v, setV] = useState(() => new URLSearchParams(location.search).get(key) ?? fallback);
   useEffect(() => {
@@ -200,7 +215,7 @@ export default function App() {
             <br />
             <span className="accent">0–2 years. No promoted listings.</span>
           </h1>
-          <p className="sub">New grad roles and internships in ML, AI, software and data, pulled straight from company career pages every hour. You apply on the company's own site.</p>
+          <p className="sub">New grad roles and internships in ML, AI, software and data, pulled straight from company career pages throughout the day. You apply on the company's own site.</p>
           {data && (
             <div className="stats">
               <span className="stat">
@@ -314,9 +329,21 @@ export default function App() {
             </button>
           )}
 
+          <section className="elsewhere">
+            <span className="label">Also search these filters on</span>
+            <div className="chips">
+              {elsewhere(q, level, cat, region).map(([name, href]) => (
+                <a key={name} className="chip ext" href={href} target="_blank" rel="noreferrer">
+                  {name} ↗
+                </a>
+              ))}
+            </div>
+            <span className="small-note">These open the site's own search. Listings there may include promoted jobs.</span>
+          </section>
+
           <section className="how">
             <h3>How this works</h3>
-            <p>Every hour we read the official job boards of {data?.companies ?? "90+"} tech companies and keep only new grad roles, internships and jobs asking for 0–2 years of experience. Nobody pays to be listed. Always apply on the company's own page.</p>
+            <p>Every couple of hours we read the official job boards of {data?.companies ?? "90+"} tech companies and keep only new grad roles, internships and jobs asking for 0–2 years of experience. Nobody pays to be listed. Always apply on the company's own page.</p>
             <a className="btn primary" href={PROOFPAL}>
               Learn ML in 60 days with ProofPal →
             </a>
