@@ -70,7 +70,7 @@ function region(loc) {
 async function getJSON(url) {
   for (let i = 0; i < 3; i++) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": "Mozilla/5.0 (compatible; proofpal-jobs)", Accept: "application/json" } });
+      const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": "Mozilla/5.0 (compatible; rynovi-jobs)", Accept: "application/json" } });
       if (r.ok) return await r.json();
     } catch {
       /* retry */

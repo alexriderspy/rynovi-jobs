@@ -18,7 +18,7 @@ type Job = {
 
 type Data = { updatedAt: string; companies: number; scanned: number; count: number; jobs: Job[] };
 
-const PROOFPAL = "https://proofpal-eight.vercel.app";
+const RYNOVI = "https://rynovi.vercel.app";
 const LEVELS = [["all", "All"], ["newgrad", "New grad"], ["intern", "Internships"]] as const;
 const CATS = [["all", "All roles"], ["ml", "ML & AI"], ["swe", "Software"], ["data", "Data"]] as const;
 const REGIONS = ["Anywhere", "Remote", "India", "US", "Europe", "Canada", "Asia-Pacific", "Latin America"];
@@ -205,9 +205,9 @@ export default function App() {
     <div className="page">
       <header className="hero">
         <div className="hero-inner">
-          <a className="brand" href={PROOFPAL}>
+          <a className="brand" href={RYNOVI}>
             <Pal size={40} />
-            <b>ProofPal</b>
+            <b>Rynovi</b>
             <span className="brand-tag">Jobs</span>
           </a>
           <h1>
@@ -344,8 +344,8 @@ export default function App() {
           <section className="how">
             <h3>How this works</h3>
             <p>Every couple of hours we read the official job boards of {data?.companies ?? "90+"} tech companies and keep only new grad roles, internships and jobs asking for 0–2 years of experience. Nobody pays to be listed. Always apply on the company's own page.</p>
-            <a className="btn primary" href={PROOFPAL}>
-              Learn ML in 60 days with ProofPal →
+            <a className="btn primary" href={RYNOVI}>
+              Learn ML in 60 days with Rynovi →
             </a>
           </section>
         </main>

@@ -1,4 +1,4 @@
-# ProofPal Jobs
+# Rynovi Jobs
 
 Fresh entry-level tech jobs: new grad roles and internships in ML, AI, software and data, for people with 0–2 years of experience. No promoted listings.
 
