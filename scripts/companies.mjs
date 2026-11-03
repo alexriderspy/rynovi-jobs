@@ -2,8 +2,9 @@ export const COMPANIES = [
   ["smartrecruiters", "Swiggy", "Swiggy", "swiggy.com"],
   ["smartrecruiters", "Freshworks", "Freshworks", "freshworks.com"],
   ["smartrecruiters", "ServiceNow", "ServiceNow", "servicenow.com"],
-  ["amazon", "IND", "Amazon", "amazon.jobs"],
-  ["microsoft", "India", "Microsoft", "microsoft.com"],
+  // Amazon and Microsoft by country (their search needs one): India first, then where most foreign members apply.
+  ...["IND", "USA", "CAN", "GBR", "IRL", "DEU", "SGP", "AUS"].map((cc) => ["amazon", cc, "Amazon", "amazon.jobs"]),
+  ...["India", "United States", "Canada", "United Kingdom", "Ireland", "Israel"].map((loc) => ["microsoft", loc, "Microsoft", "microsoft.com"]),
   ["atlassian", "all", "Atlassian", "atlassian.com"],
   ["workday", "nvidia|wd5|NVIDIAExternalCareerSite", "NVIDIA", "nvidia.com"],
   ["workday", "salesforce|wd12|External_Career_Site", "Salesforce", "salesforce.com"],

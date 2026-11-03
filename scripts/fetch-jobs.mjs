@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { COMPANIES } from "./companies.mjs";
+import { FLAGS, place, visa } from "./geo.mjs";
 
 const MAX_AGE_DAYS = 45;
 
@@ -7,24 +8,22 @@ const INTERN = /\b(intern|internship|co-?op|summer 20\d\d|winter 20\d\d)\b/i;
 const NEW_GRAD = /\b(new grad(uate)?|graduate|university|campus|early[- ]career|entry[- ]level|junior|jr\.?|apprentice|residency|resident|fellow(ship)?|associate (software|engineer|data|ml|machine)|engineer,? i\b|engineer 1\b|(software|ml|data) engineer i\b|level 1|grad\b|20(25|26|27) start|sde[- ]?(1|i)|software development engineer[- ]?(1|i)|(sde|swe|engineer|developer)[- ]1|fresher|freshers|trainee|graduate engineer trainee)\b/i;
 const ALWAYS_SENIOR = /\b(senior|sr\.?|staff|principal|lead|leader|manager|management|director|head|vp|vice president|chief|architect|distinguished|expert)\b/i;
 const LEVEL_UP = /\b(ii|iii|iv|2|3|4|5)\b/i;
+// Chip, circuit and mechanical roles: the site is for ML, AI, software and data.
+const HARDWARE = /\b(hardware|electrical|mechanical|asic|rtl|fpga|analog|mixed[- ]signal|rf|silicon|soc|vlsi|layout|pcb|manufacturing|process engineer|chemical|civil|structural|optical|photonics|test engineer|validation engineer|technician)\b/i;
+// Chip design stays out even when the title says AI ("GPU & AI Accelerator Hardware Design Intern").
+const CHIP_DESIGN = /\b(hardware design|asic|rtl|vlsi|silicon|pcb|fpga|physical design|design verification|analog|circuit)\b/i;
 const NOT_TECH = /\b(sales|account (executive|manager)|recruit(er|ing)|marketing|legal|counsel|finance|accounting|payroll|people|hr\b|talent|customer success|support|office|facilities|executive assistant|communications|policy|partnerships|business development|events|content|copywriter|designer)\b/i;
 
 const ML = /\b(machine learning|ml|ai|artificial intelligence|deep learning|llm|nlp|computer vision|perception|research (engineer|scientist)|applied scientist|data scien(ce|tist)|inference|model|training|robotics|autonomy|quant(itative)? research)\b/i;
 const DATA = /\b(data (analyst|engineer|engineering|platform)|analytics|business intelligence|quantitative analyst)\b/i;
 const SWE = /\b(software|engineer|engineering|developer|sde|swe|backend|back-end|frontend|front-end|full[- ]?stack|infrastructure|platform|mobile|ios|android|security|devops|sre|site reliability|systems|trader|trading|quant)\b/i;
+// "Engineer" alone isn't software: a software role names it (bridge, transit or field engineers don't).
+const SOFTWARE = /\b(software|developer|programmer|programming|sde|swe|back[- ]?end|front[- ]?end|full[- ]?stack|web|mobile|ios|android|devops|sre|site reliability|cloud|platform|infrastructure engineer|security engineer|cyber ?security|application|api|embedded software|firmware|computer science|game|graphics|compiler|distributed|database|automation engineer|test automation|tools engineer|it engineer|quant(itative)? (developer|engineer|trader|research)|trading|trader)\b/i;
+const NOT_SOFTWARE = /\b(construction|civil|bridge|transit|water|wastewater|environmental|geotechnical|industrial|quality engineer|quality engineering|process engineer|process engineering|field service|field engineer|loads|propulsion|structures|thermal|avionics|aerospace|mechanical|manufacturing|production|supply chain|logistics|technician|tech writer|technical writer|manuals|nuclear|chemical|biomedical|clinical|laboratory|lasers?|supportability|resident engineer|building|hvac|power systems|energy|utilities|mining|petroleum|marine|automotive engineer|systems engineering apprentice)\b/i;
 
 const YEARS = /(\d{1,2})\s*\+?\s*(?:-|–|to)?\s*(?:\d{1,2})?\s*\+?\s*years?(?:'|’)?\s*(?:of\s+)?(?:\w+\s+){0,4}?(?:experience|exp\b)/gi;
 const NEW_GRAD_TEXT = /\b(new grad(uate)?s?|recent graduates?|graduating in|early[- ]career|0\s*(?:-|–|to)\s*[12]\s*years|no (prior )?experience required|entry[- ]level|freshers?|0\s*(?:-|–|to)\s*1\s*years?)\b/i;
 
-const REGIONS = [
-  ["India", /\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|gurgaon|gurugram|noida|chennai|kolkata|ahmedabad)\b/i],
-  ["Canada", /\b(canada|toronto|vancouver|montreal|ontario|waterloo|ottawa|calgary)\b/i],
-  ["Europe", /\b(london|united kingdom|uk|england|scotland|glasgow|edinburgh|manchester|belfast|canary wharf|knutsford|northampton|germany|berlin|munich|frankfurt|paris|france|amsterdam|netherlands|dublin|ireland|zurich|switzerland|spain|madrid|barcelona|europe|emea|poland|pol|warsaw|krak[oó]w|stockholm|sweden|copenhagen|denmark|lisbon|portugal|milan|milano|italy|prague|czech|belgium|brussels|bucharest|romania|greece|athens|bulgaria|sofia|luxembourg|vienna|austria|budapest|hungary|helsinki|finland|oslo|norway)\b/i],
-  ["Asia-Pacific", /\b(singapore|tokyo|japan|sydney|australia|seoul|korea|hong kong|apac|melbourne|taiwan|taipei|hsinchu|china|prc|shanghai|beijing|chengdu|shenzhen|malaysia|penang|kulim|kuala lumpur|vietnam|hanoi|ho chi minh|philippines|manila|indonesia|jakarta|thailand|bangkok)\b/i],
-  ["Latin America", /\b(mexico|jalisco|brazil|s[aã]o paulo|costa rica|heredia|argentina|buenos aires|colombia|bogot[aá]|chile|santiago|peru|lima)\b/i],
-  ["Middle East", /\b(qatar|doha|israel|tel aviv|haifa|dubai|uae|abu dhabi|saudi|riyadh)\b/i],
-  ["US", /\b(united states|usa|u\.s\.|us\b|new york|nyc|san francisco|sf|bay area|seattle|austin|boston|chicago|los angeles|denver|atlanta|miami|palo alto|mountain view|menlo park|sunnyvale|san jose|santa clara|redmond|washington|dc|california|texas|ca|ny|wa|ma|co|il|nj|new jersey|whippany|missouri|o'fallon|oregon|hillsboro|arizona|phoenix|chandler|virginia|carolina|raleigh|pittsburgh|pennsylvania|utah|salt lake|colorado|minnesota|ohio|michigan|georgia|florida|tennessee|nashville)\b/i]
-];
 
 const strip = (html = "") =>
   html
@@ -44,6 +43,7 @@ function reqYears(text) {
 function classify(title, text) {
   const t = title.replace(/[()|,\-–]/g, " ");
   if (NOT_TECH.test(t) && !ML.test(t)) return null;
+  if ((HARDWARE.test(t) && !ML.test(t)) || CHIP_DESIGN.test(t)) return null;
   const isIntern = INTERN.test(t);
   const titleNewGrad = NEW_GRAD.test(t);
   const plain = t.replace(/\b20\d\d\b/g, "");
@@ -56,16 +56,12 @@ function classify(title, text) {
   else if (NEW_GRAD_TEXT.test(text) && (yrs === null || yrs <= 2)) level = "newgrad";
   else if (yrs !== null && yrs <= 2 && SWE.test(t)) level = "newgrad";
   if (!level) return null;
-  const category = ML.test(t) ? "ml" : DATA.test(t) ? "data" : SWE.test(t) ? "swe" : null;
+  if (NOT_SOFTWARE.test(t) && !ML.test(t) && !/\bsoftware\b/i.test(t)) return null;
+  const category = ML.test(t) ? "ml" : DATA.test(t) ? "data" : SOFTWARE.test(t) ? "swe" : null;
   if (!category) return null;
   return { level, category, years: yrs };
 }
 
-function region(loc) {
-  const out = /\bIND\b/.test(loc) ? ["India"] : [];
-  for (const [name, re] of REGIONS) if (re.test(loc) && !out.includes(name)) out.push(name);
-  return out.length ? out : ["Other"];
-}
 
 async function getJSON(url) {
   for (let i = 0; i < 3; i++) {
@@ -124,6 +120,8 @@ async function fromAshby(c) {
 }
 
 const WD_TERMS = ["intern", "internship", "graduate", "new grad", "university", "early career", "campus", "fresher", "associate", "entry level"];
+// Boards found through discovery get a lighter scan (there are hundreds): the main searches, first page only.
+const WD_TERMS_LIGHT = ["intern", "graduate", "university", "entry level"];
 
 async function postJSON(url, body) {
   for (let i = 0; i < 3; i++) {
@@ -144,8 +142,8 @@ async function fromWorkday(c) {
   const host = `https://${tenant}.${wd}.myworkdayjobs.com`;
   const api = `${host}/wday/cxs/${tenant}/${site}`;
   const seen = new Map();
-  for (const term of WD_TERMS) {
-    for (let offset = 0; offset < 100; offset += 20) {
+  for (const term of c.light ? WD_TERMS_LIGHT : WD_TERMS) {
+    for (let offset = 0; offset < (c.light ? 20 : 100); offset += 20) {
       const j = await postJSON(`${api}/jobs`, { appliedFacets: {}, limit: 20, offset, searchText: term });
       const posts = j?.jobPostings ?? [];
       for (const p of posts) if (p.externalPath && (INTERN.test(p.title) || NEW_GRAD.test(p.title))) seen.set(p.externalPath, p);
@@ -295,8 +293,29 @@ async function pool(items, n, fn) {
   return out;
 }
 
+// Our own list first, then the boards found by discover-boards.mjs (the same company is never read twice).
+let discovered = [];
+try {
+  discovered = JSON.parse(await readFile("scripts/boards.json", "utf8")).boards ?? [];
+} catch {
+  /* not discovered yet */
+}
+const ALL = [...COMPANIES, ...discovered.map((b) => ({ ...b, domain: "", light: true }))];
+
+// The company's own site, for its logo, when the board doesn't say (career pages often live on it).
+const ATS = /(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|workday\.com)$/i;
+function siteOf(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^(www|careers|jobs|boards|job-boards)\./, "");
+    return ATS.test(host) ? "" : host;
+  } catch {
+    return "";
+  }
+}
+
 const now = Date.now();
-const results = await pool(COMPANIES, 8, async (c) => {
+const started = Date.now();
+const results = await pool(ALL, 10, async (c) => {
   const raw = await FETCH[c.source](c).catch(() => []);
   const jobs = [];
   for (const r of raw) {
@@ -305,15 +324,18 @@ const results = await pool(COMPANIES, 8, async (c) => {
     if (!Number.isFinite(posted) || now - posted > MAX_AGE_DAYS * 864e5) continue;
     const cls = classify(r.title, r.text ?? "");
     if (!cls) continue;
-    const loc = r.location || (r.remote ? "Remote" : "");
+    const loc = (r.location || (r.remote ? "Remote" : "")).replace(/\s+/g, " ").trim();
+    const where = place(loc, r.remote === true);
     jobs.push({
       id: r.id,
       title: r.title.trim(),
       company: c.name,
-      domain: c.domain,
+      domain: c.domain || siteOf(r.url),
       location: loc,
-      remote: r.remote === true || /\bremote\b/i.test(loc),
-      regions: region(loc),
+      countries: where.countries,
+      remote: where.remote,
+      regions: where.regions,
+      ...visa(r.text ?? ""),
       level: cls.level,
       category: cls.category,
       years: cls.years,
@@ -331,19 +353,32 @@ try {
 } catch {
   /* first run */
 }
-const down = results.filter((r) => r.total === 0).map((r) => r.company);
+// A company whose board didn't answer this time keeps its earlier jobs (Amazon and Microsoft count as down
+// only when every country came back empty).
+const up = new Set(results.filter((r) => r.total > 0).map((r) => r.company));
+const down = [...new Set(results.map((r) => r.company))].filter((c) => !up.has(c));
 const kept = previous.filter((j) => down.includes(j.company) && now - Date.parse(j.postedAt) <= MAX_AGE_DAYS * 864e5);
-const jobs = [...results.flatMap((r) => r.jobs), ...kept].sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+// One listing per role: boards often post the same opening twice (two requisitions, or two countries'
+// Amazon searches). Same company, title and place counts as the same role; the newest stays.
+const byRole = new Map();
+for (const j of [...results.flatMap((r) => r.jobs), ...kept].sort((a, b) => b.postedAt.localeCompare(a.postedAt))) {
+  const k = `${j.company}|${j.title.toLowerCase()}|${j.location.toLowerCase()}`;
+  if (!byRole.has(k)) byRole.set(k, j);
+}
+const jobs = [...byRole.values()];
 const out = {
   updatedAt: new Date().toISOString(),
-  companies: results.filter((r) => r.total > 0).length,
+  companies: up.size,
   scanned: results.reduce((a, r) => a + r.total, 0),
   count: jobs.length,
+  // For the country picker: every country with roles, most first, with its flag.
+  countries: Object.entries(Object.groupBy(jobs.flatMap((j) => j.countries), (c) => c))
+    .map(([name, list]) => ({ name, flag: FLAGS[name] ?? "🌍", count: list.length }))
+    .sort((a, b) => b.count - a.count),
   jobs
 };
 await mkdir("public", { recursive: true });
 await writeFile("public/jobs.json", JSON.stringify(out));
-console.log(`scanned ${out.scanned} jobs at ${out.companies} companies -> kept ${out.count}`);
+console.log(`scanned ${out.scanned} jobs at ${out.companies} companies -> kept ${out.count} in ${Math.round((Date.now() - started) / 1000)}s`);
 for (const r of results.filter((r) => r.kept).sort((a, b) => b.kept - a.kept).slice(0, 15)) console.log(`  ${r.company}: ${r.kept}/${r.total}`);
-const failed = results.filter((r) => r.total === 0).map((r) => r.company);
-if (failed.length) console.log("no data from:", failed.join(", "), `(kept ${kept.length} earlier jobs from them)`);
+if (down.length) console.log(`no data from ${down.length} companies (kept ${kept.length} earlier jobs from them):`, down.slice(0, 30).join(", "));

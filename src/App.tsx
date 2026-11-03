@@ -8,6 +8,9 @@ type Job = {
   location: string;
   remote: boolean;
   regions: string[];
+  countries?: string[];
+  visa?: "yes" | "no" | null;
+  citizensOnly?: boolean;
   level: "newgrad" | "intern";
   category: "ml" | "swe" | "data";
   years: number | null;
@@ -16,12 +19,12 @@ type Job = {
   postedAt: string;
 };
 
-type Data = { updatedAt: string; companies: number; scanned: number; count: number; jobs: Job[] };
+type Country = { name: string; flag: string; count: number };
+type Data = { updatedAt: string; companies: number; scanned: number; count: number; countries?: Country[]; jobs: Job[] };
 
 const RYNOVI = "https://rynovi.vercel.app";
 const LEVELS = [["all", "All"], ["newgrad", "New grad"], ["intern", "Internships"]] as const;
 const CATS = [["all", "All roles"], ["ml", "ML & AI"], ["swe", "Software"], ["data", "Data"]] as const;
-const REGIONS = ["Anywhere", "Remote", "India", "US", "Europe", "Canada", "Asia-Pacific", "Latin America"];
 const AGES = [["any", "Any time"], ["1", "24 hours"], ["3", "3 days"], ["7", "7 days"]] as const;
 const PAGE = 40;
 
@@ -34,17 +37,26 @@ function ago(iso: string) {
   return d === 1 ? "yesterday" : `${d}d ago`;
 }
 
-function elsewhere(q: string, level: string, cat: string, region: string) {
+// A role is in a country if it's based there, or remote with no country limit (open to anyone, anywhere).
+const anywhere = (j: Job) => j.remote && !j.countries?.length;
+
+function whereLine(j: Job) {
+  const c = j.countries ?? [];
+  if (j.remote) return c.length ? `Remote · ${c.length > 2 ? `${c.length} countries` : c.join(", ")}` : "Remote · anywhere";
+  return j.location || c.join(", ") || "Location not listed";
+}
+
+function elsewhere(q: string, level: string, cat: string, where: string, remote: boolean) {
   const role = q.trim() || (cat === "ml" ? "machine learning" : cat === "data" ? "data" : "software engineer");
   const kind = level === "intern" ? "intern" : "fresher";
-  const where = region === "Anywhere" || region === "Remote" ? "" : region === "US" ? "United States" : region;
+  const region = where || "Anywhere";
   const words = `${role} ${level === "intern" ? "intern" : "entry level"}`;
   const enc = encodeURIComponent;
   const naukriSlug = `${role} ${kind}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return [
-    ["LinkedIn", `https://www.linkedin.com/jobs/search/?keywords=${enc(role)}${where ? `&location=${enc(where)}` : ""}&f_E=${level === "intern" ? "1" : level === "newgrad" ? "2" : "1%2C2"}${region === "Remote" ? "&f_WT=2" : ""}&sortBy=DD`],
+    ["LinkedIn", `https://www.linkedin.com/jobs/search/?keywords=${enc(role)}${where ? `&location=${enc(where)}` : ""}&f_E=${level === "intern" ? "1" : level === "newgrad" ? "2" : "1%2C2"}${remote ? "&f_WT=2" : ""}&sortBy=DD`],
     ["Glassdoor", `https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${enc(`${words}${where ? " " + where : ""}`)}`],
-    ["Naukri", `https://www.naukri.com/${naukriSlug}-jobs${region === "India" || region === "Anywhere" ? "" : "-in-" + where.toLowerCase().replace(/\s+/g, "-")}?experience=0`],
+    ...(region === "India" || region === "Anywhere" ? ([["Naukri", `https://www.naukri.com/${naukriSlug}-jobs?experience=0`]] as const) : []),
     ["Wellfound", `https://wellfound.com/role/${cat === "ml" ? "machine-learning-engineer" : cat === "data" ? "data-scientist" : "software-engineer"}`]
   ] as const;
 }
@@ -133,7 +145,9 @@ export default function App() {
   const [q, setQ] = useParam("q", "");
   const [level, setLevel] = useParam("level", "all");
   const [cat, setCat] = useParam("role", "all");
-  const [region, setRegion] = useParam("where", "Anywhere");
+  const [country, setCountry] = useParam("country", "");
+  const [remote, setRemote] = useParam("remote", "");
+  const [visa, setVisa] = useParam("visa", "");
   const [age, setAge] = useParam("posted", "any");
   const [tab, setTab] = useParam("tab", "all");
   const [saved, toggleSaved] = useSet("ppjobs:saved");
@@ -148,7 +162,7 @@ export default function App() {
       .catch(() => setError(true));
   }, []);
 
-  useEffect(() => setShown(PAGE), [q, level, cat, region, age, tab]);
+  useEffect(() => setShown(PAGE), [q, level, cat, country, remote, visa, age, tab]);
 
   const jobs = useMemo(() => {
     if (!data) return [];
@@ -159,18 +173,24 @@ export default function App() {
         (tab !== "saved" || saved.has(j.id)) &&
         (level === "all" || j.level === level) &&
         (cat === "all" || j.category === cat) &&
-        (region === "Anywhere" || (region === "Remote" ? j.remote : j.regions.includes(region))) &&
+        (!country || Boolean(j.countries?.includes(country)) || anywhere(j)) &&
+        (!remote || j.remote) &&
+        (!visa || (j.visa !== "no" && !j.citizensOnly)) &&
         Date.now() - Date.parse(j.postedAt) <= maxAge &&
         (!needle || `${j.title} ${j.company} ${j.location} ${j.team}`.toLowerCase().includes(needle))
     );
-  }, [data, q, level, cat, region, age, tab, saved]);
+  }, [data, q, level, cat, country, remote, visa, age, tab, saved]);
 
   const fresh = data ? data.jobs.filter((j) => Date.now() - Date.parse(j.postedAt) < 864e5).length : 0;
-  const activeFilters = [level !== "all", cat !== "all", region !== "Anywhere", age !== "any"].filter(Boolean).length;
+  const activeFilters = [level !== "all", cat !== "all", age !== "any"].filter(Boolean).length;
+  const anywhereCount = data ? data.jobs.filter(anywhere).length : 0;
+  const flagOf = (name: string) => data?.countries?.find((c) => c.name === name)?.flag ?? "🌍";
   const reset = () => {
     setLevel("all");
     setCat("all");
-    setRegion("Anywhere");
+    setCountry("");
+    setRemote("");
+    setVisa("");
     setAge("any");
     setQ("");
   };
@@ -184,10 +204,6 @@ export default function App() {
       <div className="filter-group">
         <span className="label">Role</span>
         <Chips value={cat} options={CATS} onChange={setCat} />
-      </div>
-      <div className="filter-group">
-        <span className="label">Where</span>
-        <Chips value={region} options={REGIONS.map((r) => [r, r] as const)} onChange={setRegion} />
       </div>
       <div className="filter-group">
         <span className="label">Posted</span>
@@ -239,6 +255,35 @@ export default function App() {
         <aside className="side">{filters}</aside>
 
         <main className="main">
+          <div className="where-bar" role="group" aria-label="Where">
+            <label className="country">
+              <span className="flag" aria-hidden="true">{country ? flagOf(country) : "🌍"}</span>
+              <select value={country} onChange={(e) => setCountry(e.target.value)} aria-label="Country">
+                <option value="">All countries{data ? ` · ${data.count}` : ""}</option>
+                {data?.countries?.map((c) => (
+                  <option key={c.name} value={c.name}>{`${c.name} · ${c.count + anywhereCount}`}</option>
+                ))}
+              </select>
+              <svg className="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </label>
+            <button className={"toggle" + (remote ? " on" : "")} aria-pressed={!!remote} onClick={() => setRemote(remote ? "" : "1")}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 10.5L12 3l9 7.5M5 9v11h14V9" />
+              </svg>
+              Remote
+            </button>
+            <button className={"toggle" + (visa ? " on" : "")} aria-pressed={!!visa} onClick={() => setVisa(visa ? "" : "1")} title="Hides roles that say they won't sponsor a work visa or need US citizenship">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="5" y="3" width="14" height="18" rx="2" />
+                <circle cx="12" cy="10" r="3" />
+                <path d="M9 17h6" />
+              </svg>
+              I need a visa
+            </button>
+          </div>
+
           <div className="toolbar">
             <div className="search">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
@@ -269,8 +314,8 @@ export default function App() {
             <div className="empty">
               <Pal size={90} />
               <b>{tab === "saved" ? "No saved jobs yet" : "No roles match these filters"}</b>
-              <span>{tab === "saved" ? "Tap the bookmark on any job to keep it here." : "Try a wider region or time range."}</span>
-              {tab !== "saved" && activeFilters > 0 && (
+              <span>{tab === "saved" ? "Tap the bookmark on any job to keep it here." : "Try All countries, turn off Remote or I need a visa, or a wider time range."}</span>
+              {tab !== "saved" && (activeFilters > 0 || country || remote || visa) && (
                 <button className="btn ghost" onClick={reset}>
                   Clear filters
                 </button>
@@ -296,8 +341,11 @@ export default function App() {
                       <span className={"badge " + j.level}>{j.level === "intern" ? "Internship" : "New grad"}</span>
                       <span className={"badge cat-" + j.category}>{j.category === "ml" ? "ML & AI" : j.category === "data" ? "Data" : "Software"}</span>
                       {j.remote && <span className="badge remote">Remote</span>}
+                      {j.citizensOnly ? <span className="badge visa-no">US citizens only</span> : j.visa === "yes" ? <span className="badge visa-yes">✓ Sponsors visa</span> : j.visa === "no" ? <span className="badge visa-no">No visa sponsorship</span> : null}
                       {j.years !== null && j.level !== "intern" && <span className="badge">{j.years === 0 ? "0 yrs" : `${j.years} yr${j.years > 1 ? "s" : ""}`}</span>}
-                      <span className="loc">{j.location || "Location not listed"}</span>
+                      <span className="loc">
+                        <span aria-hidden="true">{j.countries?.length === 1 ? flagOf(j.countries[0]) : j.remote ? "🌍" : "📍"}</span> {whereLine(j)}
+                      </span>
                     </div>
                   </div>
                   <div className="actions">
@@ -332,7 +380,7 @@ export default function App() {
           <section className="elsewhere">
             <span className="label">Also search these filters on</span>
             <div className="chips">
-              {elsewhere(q, level, cat, region).map(([name, href]) => (
+              {elsewhere(q, level, cat, country, !!remote).map(([name, href]) => (
                 <a key={name} className="chip ext" href={href} target="_blank" rel="noreferrer">
                   {name} ↗
                 </a>
@@ -343,9 +391,9 @@ export default function App() {
 
           <section className="how">
             <h3>How this works</h3>
-            <p>Every couple of hours we read the official job boards of {data?.companies ?? "90+"} tech companies and keep only new grad roles, internships and jobs asking for 0–2 years of experience. Nobody pays to be listed. Always apply on the company's own page.</p>
+            <p>Every few hours we read the official job boards of {data?.companies ?? "hundreds of"} tech companies around the world and keep only new grad roles, internships and jobs asking for 0–2 years of experience. Nobody pays to be listed. Always apply on the company's own page.</p>
             <a className="btn primary" href={RYNOVI}>
-              Learn ML in 60 days with Rynovi →
+              90 days to an AI/ML Engineer job with Rynovi →
             </a>
           </section>
         </main>

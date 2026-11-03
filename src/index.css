@@ -120,3 +120,24 @@ h1, h2, h3, p { margin: 0; }
 .elsewhere { margin-top: 12px; padding: 16px; border-radius: 20px; background: #fff; box-shadow: 0 3px 0 var(--line); display: flex; flex-direction: column; gap: 10px; }
 .chip.ext { display: inline-flex; align-items: center; }
 .small-note { font-size: 12px; font-weight: 700; color: var(--muted); }
+
+/* Where: country picker, remote and visa toggles, above the search (App.tsx) */
+.where-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.country { position: relative; display: inline-flex; align-items: center; height: 46px; border-radius: 999px; background: #fff; border: 2px solid var(--line); box-shadow: 0 6px 18px rgba(23, 51, 15, 0.08); color: var(--ink); }
+.country:focus-within { border-color: var(--green); }
+.country .flag { position: absolute; left: 14px; font-size: 19px; line-height: 1; pointer-events: none; }
+.country select { appearance: none; -webkit-appearance: none; height: 100%; border: 0; background: transparent; font: inherit; font-size: 15px; font-weight: 900; color: inherit; padding: 0 38px 0 44px; border-radius: 999px; cursor: pointer; max-width: min(320px, 70vw); text-overflow: ellipsis; }
+.country select:focus { outline: none; }
+.country .caret { position: absolute; right: 14px; color: var(--muted); pointer-events: none; }
+.toggle { display: inline-flex; align-items: center; gap: 7px; height: 46px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--line); background: #fff; font: inherit; font-size: 14px; font-weight: 900; color: var(--ink); transition: background 0.15s, border-color 0.15s, transform 0.1s; }
+.toggle:hover { border-color: #cfe3c6; }
+.toggle:active { transform: scale(0.97); }
+.toggle.on { background: var(--green); border-color: var(--green); color: #fff; }
+.badge.visa-yes { background: #dff3d5; color: #2a5f1e; }
+.badge.visa-no { background: #f2ece4; color: var(--muted); }
+.loc span { margin-right: 2px; }
+@media (max-width: 560px) {
+  .where-bar .country { flex: 1 1 100%; }
+  .where-bar .country select { width: 100%; max-width: none; }
+  .where-bar .toggle { flex: 1; justify-content: center; }
+}
